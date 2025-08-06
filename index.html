@@ -1,14 +1,292 @@
 <!DOCTYPE html>
-<html>
+<html lang="sv">
 <head>
-  <title>Snake Game</title>
-  <style>
-    body { background-color: black; margin: 0; }
-    canvas { display: block; margin: 0 auto; background: #111; }
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Snake med meny och zoom</title>
+<style>
+  body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #1e3c72, #2a5298);
+    color: white;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    margin: 0;
+    overflow: hidden;
+  }
+  #gameWrapper {
+    background: #0a1a2a;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 0 20px #4a90e2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 400px;
+  }
+  #gameContainer {
+    position: relative;
+    width: 100%;
+    height: 400px;
+    overflow: hidden;
+    border: 3px solid #4a90e2;
+    border-radius: 10px;
+    background: #011627;
+    touch-action: none;
+  }
+  canvas {
+    display: block;
+    background-color: #011627;
+    width: 100%;
+    height: 100%;
+    image-rendering: pixelated;
+  }
+  #score {
+    margin: 10px 0 20px;
+    font-size: 1.2rem;
+    font-weight: bold;
+    text-align: center;
+  }
+  button {
+    background-color: #4a90e2;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 20px;
+    margin: 8px;
+    color: white;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+  }
+  button:hover {
+    background-color: #357ABD;
+  }
+  #menu, #gameOverMenu {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  #menu h2, #gameOverMenu h2 {
+    margin-bottom: 15px;
+  }
+</style>
 </head>
 <body>
-  <canvas id="game" width="400" height="400"></canvas>
-  <script src="snake.js"></script>
+<div id="gameWrapper">
+  <div id="gameContainer">
+    <canvas id="gameCanvas" width="400" height="400"></canvas>
+  </div>
+  <div id="score">Poäng: 0</div>
+
+  <div id="menu">
+    <h2>Välj spelläge</h2>
+    <button data-mode="classic">Classic</button>
+    <button data-mode="speed">Speed</button>
+    <button data-mode="nowalls">No Walls</button>
+  </div>
+
+  <div id="gameOverMenu" style="display:none;">
+    <h2>Game Over</h2>
+    <p id="finalScore"></p>
+    <button id="restartBtn">Spela igen</button>
+    <button id="menuBtn">Tillbaka till meny</button>
+  </div>
+</div>
+
+<script>
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  const scoreDisplay = document.getElementById('score');
+  const menu = document.getElementById('menu');
+  const gameOverMenu = document.getElementById('gameOverMenu');
+  const finalScoreText = document.getElementById('finalScore');
+  const restartBtn = document.getElementById('restartBtn');
+  const menuBtn = document.getElementById('menuBtn');
+
+  const tileSize = 20;
+  const tileCountX = canvas.width / tileSize; // 20
+  const tileCountY = canvas.height / tileSize; // 20
+
+  let snake = [];
+  let velocity = { x: 1, y: 0 };
+  let food = null;
+  let score = 0;
+  let gameOver = false;
+  let gameLoopInterval;
+  let gameSpeed = 100;
+  let currentMode = 'classic';
+
+  // Skapa en slumpmässig position för maten
+  function randomFoodPosition() {
+    let position;
+    do {
+      position = {
+        x: Math.floor(Math.random() * tileCountX),
+        y: Math.floor(Math.random() * tileCountY),
+      };
+    } while (snake.some(segment => segment.x === position.x && segment.y === position.y));
+    return position;
+  }
+
+  function drawRect(x, y, color) {
+    ctx.fillStyle = color;
+    ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
+  }
+
+  function draw() {
+    // Bakgrund
+    ctx.fillStyle = '#011627';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Rita ormen
+    for (let i = 0; i < snake.length; i++) {
+      drawRect(snake[i].x, snake[i].y, i === 0 ? '#4a90e2' : '#1f77b4');
+    }
+
+    // Rita maten
+    drawRect(food.x, food.y, '#e94e77');
+  }
+
+  function update() {
+    // Flytta ormen
+    const newHead = { x: snake[0].x + velocity.x, y: snake[0].y + velocity.y };
+
+    // Checka spelläge och gränser
+    if (currentMode !== 'nowalls') {
+      // Krock med väggar = game over
+      if (
+        newHead.x < 0 || newHead.x >= tileCountX ||
+        newHead.y < 0 || newHead.y >= tileCountY
+      ) {
+        gameOver = true;
+        return;
+      }
+    } else {
+      // Wrap runt (no walls mode)
+      if (newHead.x < 0) newHead.x = tileCountX - 1;
+      else if (newHead.x >= tileCountX) newHead.x = 0;
+      if (newHead.y < 0) newHead.y = tileCountY - 1;
+      else if (newHead.y >= tileCountY) newHead.y = 0;
+    }
+
+    // Krock med sig själv
+    if (snake.some(segment => segment.x === newHead.x && segment.y === newHead.y)) {
+      gameOver = true;
+      return;
+    }
+
+    snake.unshift(newHead);
+
+    // Äta mat?
+    if (newHead.x === food.x && newHead.y === food.y) {
+      score++;
+      scoreDisplay.textContent = 'Poäng: ' + score;
+      food = randomFoodPosition();
+      // Öka hastighet i speed-läget
+      if (currentMode === 'speed' && gameSpeed > 30) {
+        gameSpeed -= 2;
+        clearInterval(gameLoopInterval);
+        gameLoopInterval = setInterval(gameLoop, gameSpeed);
+      }
+    } else {
+      snake.pop();
+    }
+  }
+
+  function gameLoop() {
+    if (gameOver) {
+      showGameOverMenu();
+      clearInterval(gameLoopInterval);
+      return;
+    }
+    update();
+    draw();
+  }
+
+  function startGame(mode) {
+    currentMode = mode;
+    snake = [
+      { x: Math.floor(tileCountX / 2), y: Math.floor(tileCountY / 2) },
+      { x: Math.floor(tileCountX / 2) - 1, y: Math.floor(tileCountY / 2) },
+      { x: Math.floor(tileCountX / 2) - 2, y: Math.floor(tileCountY / 2) },
+    ];
+    velocity = { x: 1, y: 0 };
+    food = randomFoodPosition();
+    score = 0;
+    gameOver = false;
+    scoreDisplay.textContent = 'Poäng: 0';
+
+    if (mode === 'classic') {
+      gameSpeed = 100;
+    } else if (mode === 'speed') {
+      gameSpeed = 60;
+    } else if (mode === 'nowalls') {
+      gameSpeed = 100;
+    }
+
+    // Visa canvas och poäng, göm menyer
+    canvas.style.display = 'block';
+    scoreDisplay.style.display = 'block';
+    menu.style.display = 'none';
+    gameOverMenu.style.display = 'none';
+
+    clearInterval(gameLoopInterval);
+    gameLoopInterval = setInterval(gameLoop, gameSpeed);
+  }
+
+  function showGameOverMenu() {
+    finalScoreText.textContent = `Din poäng: ${score}`;
+    // Göm canvas och poäng
+    canvas.style.display = 'none';
+    scoreDisplay.style.display = 'none';
+
+    gameOverMenu.style.display = 'flex';
+  }
+
+  // Inputhantering
+  window.addEventListener('keydown', e => {
+    if (gameOver) return;
+    switch (e.key) {
+      case 'ArrowUp':
+      case 'w':
+        if (velocity.y !== 1) velocity = { x: 0, y: -1 };
+        break;
+      case 'ArrowDown':
+      case 's':
+        if (velocity.y !== -1) velocity = { x: 0, y: 1 };
+        break;
+      case 'ArrowLeft':
+      case 'a':
+        if (velocity.x !== 1) velocity = { x: -1, y: 0 };
+        break;
+      case 'ArrowRight':
+      case 'd':
+        if (velocity.x !== -1) velocity = { x: 1, y: 0 };
+        break;
+    }
+  });
+
+  // Menyknappar
+  menu.querySelectorAll('button').forEach(button => {
+    button.addEventListener('click', () => {
+      startGame(button.getAttribute('data-mode'));
+    });
+  });
+
+  restartBtn.addEventListener('click', () => {
+    startGame(currentMode);
+  });
+
+  menuBtn.addEventListener('click', () => {
+    gameOverMenu.style.display = 'none';
+    menu.style.display = 'flex';
+  });
+
+  // Starta med meny synlig
+  canvas.style.display = 'none';
+  scoreDisplay.style.display = 'none';
+</script>
 </body>
 </html>
